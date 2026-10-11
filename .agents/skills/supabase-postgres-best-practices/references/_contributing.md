@@ -1,58 +1,71 @@
-# Writing Guidelines for Postgres References
+# Contribution Guidelines for Postgres References
 
-This document provides guidelines for creating effective Postgres best
-practice references that work well with AI agents and LLMs.
+Use these guidelines when creating or updating a Postgres best-practice
+reference. Each reference should give AI agents and developers a clear,
+accurate, and actionable path from a problematic pattern to a better one.
 
-## Key Principles
+## Authoring Principles
 
-### 1. Concrete Transformation Patterns
+### 1. Show Concrete Transformations
 
-Show exact SQL rewrites. Avoid philosophical advice.
+Describe the specific change to make and show it in SQL or application code.
+Avoid advice that is too broad to act on.
 
-**Good:** "Use `WHERE id = ANY(ARRAY[...])` instead of
-`WHERE id IN (SELECT ...)`" **Bad:** "Design good schemas"
+**Good:** "Add a partial index for rows that match the query's active-record
+filter."
 
-### 2. Error-First Structure
+**Avoid:** "Design good schemas."
 
-Always show the problematic pattern first, then the solution. This trains agents
-to recognize anti-patterns.
+### 2. Present the Problem Before the Solution
+
+Show the problematic pattern first, explain its impact, and then provide the
+recommended alternative. This structure helps readers recognize when the
+guidance applies.
 
 ```markdown
-**Incorrect (sequential queries):** [bad example]
+**Problematic (sequential queries):**
+[Example of the problematic pattern]
 
-**Correct (batched query):** [good example]
+**Recommended (batched query):**
+[Example of the improved pattern]
 ```
 
-### 3. Quantified Impact
+### 3. Quantify Impact Responsibly
 
-Include specific metrics. Helps agents prioritize fixes.
+Use concrete measurements when they are available, and include the workload,
+dataset, or conditions behind them. Do not present estimates or illustrative
+figures as guaranteed results.
 
-**Good:** "10x faster queries", "50% smaller index", "Eliminates N+1" 
-**Bad:** "Faster", "Better", "More efficient"
+**Good:** "In a test with 1 million rows, the partial index was 50% smaller
+than the full index."
 
-### 4. Self-Contained Examples
+**Avoid:** "This is much faster."
 
-Examples should be complete and runnable (or close to it). Include `CREATE TABLE`
-if context is needed.
+### 4. Make Examples Self-Contained
+
+Include enough context for readers to understand and adapt each example. When
+the schema affects the behavior, provide the relevant table or column
+definitions.
 
 ```sql
--- Include table definition when needed for clarity
-CREATE TABLE users (
+create table users (
   id bigint PRIMARY KEY,
   email text NOT NULL,
   deleted_at timestamptz
 );
 
--- Now show the index
-CREATE INDEX users_active_email_idx ON users(email) WHERE deleted_at IS NULL;
+create index users_active_email_idx
+  on users (email)
+  where deleted_at is null;
 ```
 
-### 5. Semantic Naming
+### 5. Use Meaningful Names
 
-Use meaningful table/column names. Names carry intent for LLMs.
+Choose names that communicate the role of each table, column, and object.
 
 **Good:** `users`, `email`, `created_at`, `is_active`
-**Bad:** `table1`, `col1`, `field`, `flag`
+
+**Avoid:** `table1`, `col1`, `field`, `flag`
 
 ---
 
@@ -60,111 +73,116 @@ Use meaningful table/column names. Names carry intent for LLMs.
 
 ### SQL Formatting
 
-```sql
--- Use lowercase keywords, clear formatting
-CREATE INDEX CONCURRENTLY users_email_idx
-  ON users(email)
-  WHERE deleted_at IS NULL;
+Use lowercase SQL keywords, consistent indentation, and clear line breaks.
 
--- Not cramped or ALL CAPS
-CREATE INDEX CONCURRENTLY USERS_EMAIL_IDX ON USERS(EMAIL) WHERE DELETED_AT IS NULL;
+```sql
+create index users_active_email_idx
+  on users (email)
+  where deleted_at is null;
+```
+
+Avoid cramped formatting or inconsistent capitalization:
+
+```sql
+CREATE INDEX USERS_EMAIL_IDX ON USERS(EMAIL) WHERE DELETED_AT IS NULL;
 ```
 
 ### Comments
 
-- Explain _why_, not _what_
-- Highlight performance implications
-- Point out common pitfalls
+- Explain why a pattern matters rather than restating what the code does.
+- Call out relevant performance implications and common pitfalls.
+- Keep comments concise and ensure they remain accurate as examples change.
 
 ### Language Tags
 
-- `sql` - Standard SQL queries
-- `plpgsql` - Stored procedures/functions
-- `typescript` - Application code (when needed)
-- `python` - Application code (when needed)
+Use the fenced-code language tag that matches the example:
+
+- `sql` for SQL statements and queries
+- `plpgsql` for PL/pgSQL functions
+- `typescript` for TypeScript application code
+- `python` for Python application code
 
 ---
 
 ## When to Include Application Code
 
-**Default: SQL Only**
+Keep references SQL-focused by default. Include application code when the
+guidance depends on application behavior, such as connection pooling,
+transaction management, ORM query patterns, or prepared statements.
 
-Most references should focus on pure SQL patterns. This keeps examples portable.
-
-**Include Application Code When:**
-
-- Connection pooling configuration
-- Transaction management in application context
-- ORM anti-patterns (N+1 in Prisma/TypeORM)
-- Prepared statement usage
-
-**Format for Mixed Examples:**
+For mixed examples, label each example by the problem it demonstrates and the
+recommended approach:
 
 ````markdown
-**Incorrect (N+1 in application):**
+**Problematic (N+1 queries in application code):**
 
 ```typescript
 for (const user of users) {
-  const posts = await db.query("SELECT * FROM posts WHERE user_id = $1", [
+  const posts = await db.query("select * from posts where user_id = $1", [
     user.id,
   ]);
 }
 ```
-````
 
-**Correct (batch query):**
+**Recommended (fetch related rows in one query):**
 
 ```typescript
-const posts = await db.query("SELECT * FROM posts WHERE user_id = ANY($1)", [
+const posts = await db.query("select * from posts where user_id = any($1)", [
   userIds,
 ]);
 ```
+````
 
 ---
 
-## Impact Level Guidelines
+## Impact Level Guidance
 
-| Level | Improvement | Use When |
-|-------|-------------|----------|
-| **CRITICAL** | 10-100x | Missing indexes, connection exhaustion, sequential scans on large tables |
-| **HIGH** | 5-20x | Wrong index types, poor partitioning, missing covering indexes |
-| **MEDIUM-HIGH** | 2-5x | N+1 queries, inefficient pagination, RLS optimization |
-| **MEDIUM** | 1.5-3x | Redundant indexes, query plan instability |
-| **LOW-MEDIUM** | 1.2-2x | VACUUM tuning, configuration tweaks |
-| **LOW** | Incremental | Advanced patterns, edge cases |
+Choose an impact level that reflects the likely benefit and scope of the
+problem. Treat the ranges below as guidance, not a promise; actual results
+depend on the workload, data distribution, and database configuration.
+
+| Level | Typical improvement | Example use cases |
+|-------|--------------------|-------------------|
+| **CRITICAL** | 10-100x | Missing indexes or connection exhaustion under significant load |
+| **HIGH** | 5-20x | An unsuitable index type or an inefficient access strategy |
+| **MEDIUM-HIGH** | 2-5x | N+1 queries, inefficient pagination, or costly RLS policies |
+| **MEDIUM** | 1.5-3x | Redundant indexes or avoidable query-plan instability |
+| **LOW-MEDIUM** | 1.2-2x | Vacuum or configuration tuning |
+| **LOW** | Incremental or workload-specific | Advanced patterns and specialized edge cases |
+
+Do not assign a level based only on this table. Explain the conditions that
+make the impact relevant, and avoid numeric claims unless they are supported
+by a measurement or a clearly identified source.
 
 ---
 
-## Reference Standards
+## Sources and Related References
 
-**Primary Sources:**
+Prefer primary documentation and verify that each linked source supports the
+guidance in the reference.
 
-- Official Postgres documentation
-- Supabase documentation
-- Postgres wiki
-- Established blogs (2ndQuadrant, Crunchy Data)
-
-**Format:**
-
-```markdown
-Reference:
-[Postgres Indexes](https://www.postgresql.org/docs/current/indexes.html)
-```
+- [PostgreSQL documentation](https://www.postgresql.org/docs/current/)
+- [Supabase documentation](https://supabase.com/docs)
+- [PostgreSQL wiki: Performance Optimization](https://wiki.postgresql.org/wiki/Performance_Optimization)
+- [Supabase database overview](https://supabase.com/docs/guides/database/overview)
+- [Supabase Row Level Security guide](https://supabase.com/docs/guides/auth/row-level-security)
+- [Reference template](./_template.md)
+- [Postgres reference sections](./_sections.md)
 
 ---
 
 ## Review Checklist
 
-Before submitting a reference:
+Before submitting a reference, confirm that:
 
-- [ ] Title is clear and action-oriented
-- [ ] Impact level matches the performance gain
-- [ ] impactDescription includes quantification
-- [ ] Explanation is concise (1-2 sentences)
-- [ ] Has at least 1 **Incorrect** SQL example
-- [ ] Has at least 1 **Correct** SQL example
-- [ ] SQL uses semantic naming
-- [ ] Comments explain _why_, not _what_
-- [ ] Trade-offs mentioned if applicable
-- [ ] Reference links included
-- [ ] `pnpm test` passes
+- [ ] The title is clear and action-oriented.
+- [ ] The impact level is appropriate, and any quantified claim is supported.
+- [ ] The impact description states relevant conditions or evidence.
+- [ ] The explanation is concise and describes why the guidance matters.
+- [ ] At least one problematic example and one recommended example are included.
+- [ ] SQL and application-code examples use meaningful names and correct language tags.
+- [ ] Comments explain why a pattern matters without duplicating the code.
+- [ ] Relevant trade-offs and edge cases are addressed.
+- [ ] Source links are relevant, accurate, and accessible.
+- [ ] The reference follows the [reference template](./_template.md) and is assigned to the appropriate [section](./_sections.md).
+- [ ] `pnpm test` passes.
